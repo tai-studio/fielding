@@ -1,0 +1,128 @@
+#!/usr/bin/env ruby
+
+require_relative 'lib/trollop'
+require 'Date'
+
+module Fielding
+  myname = File.basename($0, File.extname($0));
+
+  opts = Trollop::options do
+    banner <<-EOS
+#{myname} facilitates board/process management for more than one BELA.
+Usage:
+       #{myname} [options]
+where [options] are:
+    EOS
+    opt :exec, "Execute on board[s]", :short => 'x', :type => :string
+
+  	opt :date, "Set board[s] date from here"
+    opt :ntpserver, "ntp server to use", :type => :string
+
+    opt :scsynth, "start scsynth process"
+    opt :scsynthparams, "parameters for scsynth", :default => "-t 57110 -z 16 -J 8 -K 8 -G 16 -i 2 -o 2"
+
+    opt :idestop, "Stop IDE, survives reboot"
+    opt :idestart, "Start IDE, survives reboot"
+
+    opt :halt, "Halt board[s]", :short => 'e'
+
+    opt :local, "set IP to USB connection (192.168.7.2)", :short => 'l'
+  	opt :ips, "IP addresses", :long => 'ip', :type => :strings, :default => ["192.168.23.10", "192.168.23.11"]
+    opt :force, "do not test if host is alive", :short => 'f'
+  end
+
+  # opts is a hash! i.e.{ :monkey=>false, :name=>nil, :num_limbs=>4, :help=>false }
+  # print it via
+  # p opts
+
+  if !opts[:exec] && !opts[:halt] && !opts[:date] && !opts[:idestop] && !opts[:idestart]  && !opts[:scsynth]
+    Trollop::educate
+  end
+
+
+  def Fielding.execute(cmd, ips, force)
+    ips.each do |ip|
+      
+      if force
+        alive = true
+      else
+        alive = system("ping -c1 -W1 #{ip} &> /dev/null")
+      end
+
+      if alive
+        puts "#{ip} <-- #{cmd}"
+        # spawn("ssh root@#{ip} #{cmd}")
+        system("ssh root@#{ip} #{cmd}")
+      else
+        puts "#{ip} offline"
+      end
+    end
+  end
+
+# set date either from local machine or, if ntpserver is set, from that server
+  def Fielding.setDate(ntpserver, ips, force)
+    ips.each do |ip|
+      if force
+        alive = true
+      else
+        alive = system("ping -c1 -W1 #{ip} &> /dev/null")
+      end
+
+      if alive
+        Fielding.execute("/etc/init.d/ntp stop", [ip], true)
+        if !ntpserver
+          date = DateTime.now.iso8601;
+          Fielding.execute("date -s \"#{date}\"", [ip], true)
+        else
+          Fielding.execute("ntpdate #{ntpserver}", [ip], true)
+        end
+        Fielding.execute("/etc/init.d/ntp start", [ip], true)
+      else
+        puts "#{ip} offline"
+      end
+    end
+  end
+
+
+  # check if we're operating on USB port
+  if opts[:local]
+    opts[:ips] = ["192.168.7.2"]
+  end
+
+  # exec takes precendence
+  if opts[:exec]
+    Fielding.execute(opts[:exec], opts[:ips], opts[:force])
+    exit 0
+  end
+
+  if opts[:scsynth]
+    Fielding.execute("screen -d -m -S scsynth scsynth #{opts[:scsynthparams]}", opts[:ips], opts[:force])
+    exit 0
+  end
+
+
+  if opts[:date]
+    Fielding.setDate(opts[:ntpserver], opts[:ips], opts[:force])
+    exit 0
+  end
+
+  belamakescript = "make --no-print-directory -C /root/Bela"
+  if opts[:idestop]
+    Fielding.execute("#{belamakescript} idestop", opts[:ips], opts[:force])
+    Fielding.execute("#{belamakescript} idenostartup", opts[:ips], opts[:force])
+  end
+  if opts[:idestart]
+    Fielding.execute("#{belamakescript} idestart", opts[:ips], opts[:force])
+    Fielding.execute("#{belamakescript} idestartup", opts[:ips], opts[:force])
+  end
+
+  if opts[:halt]
+    Fielding.execute("halt", opts[:ips], opts[:force])
+    exit 0
+  end
+
+  puts "meh"
+
+end
+
+
