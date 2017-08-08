@@ -17,6 +17,7 @@ where [options] are:
 
   	opt :date, "Set board[s] date from here"
     opt :ntpserver, "ntp server to use", :type => :string
+    opt :info, "gather info on current status", :short => 'i'
 
     opt :scsynth, "start scsynth process"
     opt :scsynthparams, "parameters for scsynth", :default => "-t 57110 -z 16 -J 8 -K 8 -G 16 -i 2 -o 2"
@@ -35,7 +36,7 @@ where [options] are:
   # print it via
   # p opts
 
-  if !opts[:exec] && !opts[:halt] && !opts[:date] && !opts[:idestop] && !opts[:idestart]  && !opts[:scsynth]
+  if !opts[:info] && !opts[:exec] && !opts[:halt] && !opts[:date] && !opts[:idestop] && !opts[:idestart]  && !opts[:scsynth]
     Trollop::educate
   end
 
@@ -58,6 +59,20 @@ where [options] are:
       end
     end
   end
+
+  def Fielding.info(ips, force)
+    ips.each do |ip|
+      if force
+        alive = true
+      else
+        alive = system("ping -c1 -W1 #{ip} &> /dev/null")
+      end
+
+      if alive
+        Fielding.execute("date", [ip], true)
+      end
+  end
+end
 
 # set date either from local machine or, if ntpserver is set, from that server
   def Fielding.setDate(ntpserver, ips, force)
@@ -100,6 +115,10 @@ where [options] are:
     exit 0
   end
 
+  if opts[:info]
+    Fielding.info(opts[:ips], opts[:force])
+    exit 0
+  end
 
   if opts[:date]
     Fielding.setDate(opts[:ntpserver], opts[:ips], opts[:force])
@@ -121,7 +140,7 @@ where [options] are:
     exit 0
   end
 
-  puts "meh"
+  puts "this should not happen. prob. an \"exit 0\" missing..."
 
 end
 
