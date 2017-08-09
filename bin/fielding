@@ -2,7 +2,7 @@
 
 # MIT License
 
-# Copyright (c) 2017 TAI Studio
+# Copyright (c) 2017 Till Bovermann
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -43,7 +43,8 @@ where [options] are:
     opt :info, "gather info on current status", :short => 'i'
 
     opt :scsynth, "start scsynth process"
-    opt :scsynthparams, "parameters for scsynth", :default => "-t 57110 -z 16 -J 8 -K 8 -G 16 -i 2 -o 2"
+    opt :scsynthparams, "parameters for scsynth", :default => "-t 57110 -l 64 -z 16 -J 8 -K 8 -G 16 -i 2 -o 2"
+    opt :scsynthkill, "kill all scsynth processed"
 
     opt :idestop, "Stop IDE, survives reboot"
     opt :idestart, "Start IDE, survives reboot"
@@ -59,7 +60,7 @@ where [options] are:
   # print it via
   # p opts
 
-  if !opts[:info] && !opts[:exec] && !opts[:halt] && !opts[:date] && !opts[:idestop] && !opts[:idestart]  && !opts[:scsynth]
+  if !opts[:info] && !opts[:exec] && !opts[:halt] && !opts[:date] && !opts[:idestop] && !opts[:idestart]  && !opts[:scsynth] && !opts[:scsynthkill]
     Trollop::educate
   end
 
@@ -92,7 +93,9 @@ where [options] are:
       end
 
       if alive
+        # Fielding.execute("echo \`date\` && echo \`ps -A | grep scsynth\`", [ip], true)
         Fielding.execute("date", [ip], true)
+        Fielding.execute("ps -A | grep scsynth", [ip], true)
       end
   end
 end
@@ -137,6 +140,13 @@ end
     Fielding.execute("screen -d -m -S scsynth scsynth #{opts[:scsynthparams]}", opts[:ips], opts[:force])
     exit 0
   end
+
+  if opts[:scsynthkill]
+    Fielding.execute("killall scsynth", opts[:ips], opts[:force])
+    exit 0
+  end
+
+  
 
   if opts[:info]
     Fielding.info(opts[:ips], opts[:force])
