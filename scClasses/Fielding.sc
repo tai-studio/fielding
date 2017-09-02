@@ -80,4 +80,10 @@ Fielding {
 			statusWindow.front
 		}
 	}
+	queryAllNodes {
+		servers.do{|s|
+			s.queryAllNodes
+		};
+	}
+
 }
