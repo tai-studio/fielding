@@ -25,8 +25,10 @@
 
 require_relative 'lib/trollop'
 require 'Date'
+require 'socket'
 
 module Fielding
+  myIP = "192.168.23.3";
   myname = File.basename($0, File.extname($0));
 
   opts = Trollop::options do
@@ -43,7 +45,7 @@ where [options] are:
     opt :info, "gather info on current status", :short => 'i'
 
     opt :scsynth, "start scsynth process"
-    opt :scsynthparams, "parameters for scsynth", :default => "-t 57110 -l 64 -z 16 -J 8 -K 8 -G 16 -i 2 -o 2"
+    opt :scsynthparams, "parameters for scsynth (2 in, 2 out, 4 AnalogIn, 0 AnalogOut, speaker amps muted)", :default => "-t 57110 -z 256 -Z 256 -J 4 -K 0 -G 0 -i 2 -o 2 -s 1"
     opt :scsynthkill, "kill all scsynth processed"
 
     opt :idestop, "Stop IDE, survives reboot"
@@ -75,12 +77,21 @@ where [options] are:
       end
 
       if alive
-        puts "#{ip} <-- #{cmd}"
+        puts "#{ip} <---- #{cmd}"
         # spawn("ssh root@#{ip} #{cmd}")
         system("ssh root@#{ip} #{cmd}")
       else
         puts "#{ip} offline"
       end
+    end
+  end
+
+  def Fielding.executeNonBlocking(cmd, ips)
+    ips.each do |ip|
+      
+        puts "#{ip} <-nb- #{cmd}"
+        Process.spawn("ssh root@#{ip} #{cmd}")
+        # system("ssh root@#{ip} #{cmd}")
     end
   end
 
@@ -114,6 +125,7 @@ end
         if !ntpserver
           date = DateTime.now.iso8601;
           Fielding.execute("date -s \"#{date}\"", [ip], true)
+          # exec("ssh root@#{ip} \"date +%s -s @\$(netcat #{myIP} 3333)\"")
         else
           Fielding.execute("ntpdate #{ntpserver}", [ip], true)
         end
