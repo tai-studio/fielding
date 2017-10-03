@@ -13,11 +13,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 Fielding {
 	var <servers, bcServer;
 	var <statusWindow;
+	var <steno, sens2paramSynth;
+	var <alphabet;
+	var <numSensors, <numParams, <numInfluences;
+	var <allParamBus, <paramDirectBus, <paramLagBus, <paramTrigBus;
 
-	*new{|addrs|
-		^super.new.initFielding(addrs)
+
+	*new{|addrs, numChannels = 2, numSensors = 8, numParams = 8, numInfluences = 3|
+		^super.new.initFielding(addrs, numChannels, numSensors, numParams, numInfluences)
 	}
-	initFielding{|addrs|
+	initFielding{|addrs, numChannels, argNumSensors, argNumParams, argNumInfluences|
 		servers = addrs.collect{|n, key|
 			var options = n.isLocal.if({
 				ServerOptions.new
@@ -29,7 +34,65 @@ Fielding {
 				// .numAudioBusChannels_(4096)
 			});
 			Server(key, n, options)
-		}
+		};
+
+		steno = Steno(numChannels, true, server: this.bcServer);
+		alphabet = (
+			quellen: #[\a, \e, \i, \o, \u],
+			filter:  #[\f, \l, \n, \g, \x],
+			variablen: #[\0, \1, \2, \3],
+			delays: #[\d]
+		);
+
+		// number of sensors
+		numSensors = argNumSensors;
+		// number of parameters available for synths
+		numParams = argNumParams;
+		// number of influences for each parameter
+		numInfluences = argNumInfluences;
+
+		allParamBus    = Bus.audio(this.bcServer, 3 * numParams);
+		paramDirectBus = Bus.newFrom(allParamBus, 0 * numParams, numParams);
+		paramLagBus    = Bus.newFrom(allParamBus, 1 * numParams, numParams);
+		paramTrigBus   = Bus.newFrom(allParamBus, 2 * numParams, numParams);
+
+
+	}
+	sendSynths {|s|
+		SynthDef(\fieldingAnalogIn, {|lagTime = 0.5, tThresh = 0.1|
+			var bus = \bus.ir(0);
+
+			var params, paramsLag, paramsTrig;
+
+			var influenceIdx, influenceVals, parameterbuses;
+			var sensors;
+
+			sensors = s.isLocal.if({
+				{LFNoise1.ar(Rand(0.1, 100))}!numSensors
+			}, {
+				AnalogIn.ar(Array.iota(numSensors))
+			});
+
+			influenceIdx = {
+				{numSensors.rand}!numInfluences
+			}!numParams;
+			influenceVals = {
+				{|i| 1.0.rand * ((i mod: 2) * 2-1)}!numInfluences
+			}!numParams;
+
+			params = influenceIdx.collect{|idxs, i|
+				(influenceVals[i] * sensors[idxs]).sum
+			};
+
+			params = params.fold2(1);
+			// params = params.tanh;
+			paramsLag = params.lag(lagTime);
+			// paramsLag = Median.ar(100, params);//.lag(lagTime);
+			paramsTrig = Trig1.ar(HPF.ar(params, 100).abs - tThresh, 0.001) * paramsLag;
+
+			ReplaceOut.ar(bus, params ++ paramsLag ++ paramsTrig);
+
+		}).send(s);
 	}
 	connect {
 		var addr;
@@ -50,12 +113,15 @@ Fielding {
 		this.connect;
 		servers.do{|server|
 			server.isLocal.if({
-				server.boot;
+				server.waitForBoot{
+					this.sendSynths(server)
+				};
 			}, {
 				server.startAliveThread(0);
 				server.doWhenBooted({
 					server.notify;
-					server.initTree
+					server.initTree;
+					this.sendSynths(server);
 				});
 			})
 			// s.latency = nil;
@@ -68,17 +134,15 @@ Fielding {
 		});
 		^bcServer
 	}
+	sens2paramSynth {
+		sens2paramSynth.isNil.if({
+			sens2paramSynth = Synth(\fieldingAnalogIn, [\lagTime, 0.2, \tThresh, 0.1, \bus, allParamBus.index, \numParams, numParams], steno.group, \addBefore);
+			CmdPeriod.add({sens2paramSynth = nil});
+		});
+		^sens2paramSynth
+	}
 	addrs {
 		^servers.collect(_.addr)
-	}
-	makeStatusWindow {
-		(statusWindow.isNil or: {statusWindow.isClosed}).if{
-			statusWindow = Window.new.decorate;
-			servers.do{|server|
-				server.makeView(statusWindow)
-			};
-			statusWindow.front
-		}
 	}
 	queryAllNodes {
 		servers.do{|s|
@@ -86,4 +150,120 @@ Fielding {
 		};
 	}
 
+	makeStatusWindow {
+		var width = 400, elemExt, elemExtHalf, color, textView, randData, decorator;
+
+		(statusWindow.notNil and: {statusWindow.isClosed.not}).if{^this};
+
+		// pseudo randomness
+		randData = thisThread.randData;
+		thisThread.randSeed = 1979;
+
+		statusWindow = Window("fielding", Rect(0, 0, width, 600)).decorate;
+		decorator = statusWindow.view.decorator;
+		elemExt     = (width - statusWindow.view.decorator.margin.x) - 10;
+		elemExtHalf = (width/2 - statusWindow.view.decorator.margin.x - statusWindow.view.decorator.gap.x) - 5;
+
+		TextField(statusWindow, (width - (2*statusWindow.view.decorator.margin.x))@40)
+		.string_(steno.cmdLine)
+		.keyUpAction_{|me| steno.value(me.value.asString.postln) }
+		.font_(Font(Font.defaultMonoFace, 18));
+		decorator.nextLine;
+
+		EZSmoothSlider(
+			statusWindow,
+			elemExtHalf@20,
+			\in_Lag,
+			[0, 2].asSpec,
+			{|me| sens2paramSynth.set(\lagTime, me.value)},
+			0
+		);
+		EZSmoothSlider(
+			statusWindow,
+			elemExtHalf@20,
+			\in_Thr,
+			[0, 0.5].asSpec,
+			{|me| sens2paramSynth.set(\tThresh, me.value)}
+		);
+		decorator.nextLine;
+
+		(alphabet.quellen ++ alphabet.filter).do{|c|
+			color = Color.rand.alpha_(0.5);
+			EZSmoothSlider(
+				statusWindow,
+				elemExt@20,
+				"%_MX".format(c).asSymbol,
+				[ 0, 1].asSpec,
+				{|me| steno.set(c,      \mix, me.value)},
+				1
+			).setColors(hiliteColor: color);
+			decorator.nextLine;
+		};
+
+		(alphabet.variablen).do{|c|
+			color = Color.rand.alpha_(0.5);
+			EZSmoothSlider(
+				statusWindow,
+				elemExt@20,
+				"%_MF".format(c).asSymbol,
+				[ -1, 1].asSpec,
+				{|me| steno.set(c, \mix, 1/(me.value.abs+1), \feedback, me.value)},
+				0
+			).setColors(hiliteColor: color);
+			decorator.nextLine;
+		};
+		(alphabet.delays).do{|c|
+			color = Color.rand.alpha_(0.5);
+			EZSmoothSlider(
+				statusWindow,
+				elemExtHalf@20,
+				"%_MX".format(c).asSymbol,
+				[ 0, 1].asSpec,
+				{|me| steno.set(c, \mix, me.value)},
+				0
+			).setColors(hiliteColor: color);
+			EZSmoothSlider(
+				statusWindow,
+				elemExtHalf@20,
+				"%_DT".format(c).asSymbol,
+				[ 0, 0.1].asSpec,
+				{|me| steno.set(c, \dt, me.value)},
+				0
+			).setColors(hiliteColor: color);
+			decorator.nextLine;
+		};
+
+		decorator.nextLine;
+
+		// server status
+		servers.do{|server|
+			server.makeView(statusWindow)
+		};
+		statusWindow.front;
+
+		// pseudo randomness
+		thisThread.randData = randData;
+	}
+
+	getParam {|ctl, idx, processed|
+		var bus = switch (processed,
+			\none, {paramDirectBus},
+			\lag , {paramLagBus},
+			\trig, {paramTrigBus}
+		);
+
+		^In.ar(bus.index + ((ctl.index + idx)% bus.numChannels))
+	}
+
+	quelle { |name, func, multiChannelExpand, update = true, numChannels|
+		steno.quelle(name, func, multiChannelExpand, update, numChannels)
+	}
+
+	filter { |name, func, multiChannelExpand, update = true, numChannels|
+		steno.quelle(name, func, multiChannelExpand, update, numChannels)
+	}
+
+	declareVariables { |names|
+		steno.declareVariables(names)
+	}
 }
