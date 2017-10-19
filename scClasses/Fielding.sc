@@ -68,7 +68,8 @@ Fielding {
 			var sensors;
 
 			sensors = s.isLocal.if({
-				{LFNoise1.ar(Rand(0.1, 100))}!numSensors
+				//{LFNoise1.ar(Rand(0.1, 100))}!numSensors
+				K2A.ar(In.kr(0, numSensors));
 			}, {
 				AnalogIn.ar(Array.iota(numSensors))
 			});
@@ -182,7 +183,7 @@ Fielding {
 			statusWindow,
 			elemExtHalf@20,
 			\in_Thr,
-			[0, 0.5].asSpec,
+			[0, 0.05].asSpec,
 			{|me| sens2paramSynth.set(\tThresh, me.value)}
 		);
 		decorator.nextLine;
@@ -252,7 +253,7 @@ Fielding {
 			\trig, {paramTrigBus}
 		);
 
-		^In.ar(bus.index + ((ctl.index + idx)% bus.numChannels))
+		^In.ar(bus.index + ((ctl.synthIndex + idx)% bus.numChannels))
 	}
 
 	quelle { |name, func, multiChannelExpand, update = true, numChannels|
