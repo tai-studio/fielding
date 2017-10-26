@@ -19,24 +19,19 @@ Fielding {
 	var <allParamBus, <paramDirectBus, <paramLagBus, <paramTrigBus;
 
 
-	*new{|addrs, numChannels = 2, numSensors = 8, numParams = 8, numInfluences = 3|
-		^super.new.initFielding(addrs, numChannels, numSensors, numParams, numInfluences)
+	*new{|addrs, numSensors = 8, numParams = 8, numInfluences = 3|
+		^super.new.initFielding(addrs, numSensors, numParams, numInfluences)
 	}
-	initFielding{|addrs, numChannels, argNumSensors, argNumParams, argNumInfluences|
+	initFielding{|addrs, argNumSensors, argNumParams, argNumInfluences|
+
 		servers = addrs.collect{|n, key|
-			var options = n.isLocal.if({
-				ServerOptions.new
-				.maxLogins_(10)
-				.numAudioBusChannels_(4096)
+			n.isKindOf(NetAddr).if({
+				Server(key, n, ServerOptions.new.protocol_(\tcp))
 			}, {
-				ServerOptions.new
-				.protocol_(\tcp)
-				// .numAudioBusChannels_(4096)
+				n
 			});
-			Server(key, n, options)
 		};
 
-		steno = Steno(numChannels, true, server: this.bcServer);
 		alphabet = (
 			quellen: #[\a, \e, \i, \o, \u],
 			filter:  #[\f, \l, \n, \g, \x],
@@ -51,14 +46,19 @@ Fielding {
 		// number of influences for each parameter
 		numInfluences = argNumInfluences;
 
+
+
+	}
+
+	makeSteno {|numChannels = 2|
+		steno = Steno(numChannels, true, server: this.bcServer);
 		allParamBus    = Bus.audio(this.bcServer, 3 * numParams);
 		paramDirectBus = Bus.newFrom(allParamBus, 0 * numParams, numParams);
 		paramLagBus    = Bus.newFrom(allParamBus, 1 * numParams, numParams);
 		paramTrigBus   = Bus.newFrom(allParamBus, 2 * numParams, numParams);
-
-
 	}
-	sendSynths {|s|
+
+	sendSynths {|server, serverStyle|
 		SynthDef(\fieldingAnalogIn, {|lagTime = 0.5, tThresh = 0.1|
 			var bus = \bus.ir(0);
 
@@ -67,11 +67,12 @@ Fielding {
 			var influenceIdx, influenceVals, parameterbuses;
 			var sensors;
 
-			sensors = s.isLocal.if({
-				//{LFNoise1.ar(Rand(0.1, 100))}!numSensors
-				K2A.ar(In.kr(0, numSensors));
+			[server, serverStyle].postln;
+			(serverStyle == \bela).if({
+				sensors = AnalogIn.ar(Array.iota(numSensors))
 			}, {
-				AnalogIn.ar(Array.iota(numSensors))
+				//{LFNoise1.ar(Rand(0.1, 100))}!numSensors
+				sensors = K2A.ar(In.kr(0, numSensors));
 			});
 
 			influenceIdx = {
@@ -89,11 +90,12 @@ Fielding {
 			// params = params.tanh;
 			paramsLag = params.lag(lagTime);
 			// paramsLag = Median.ar(100, params);//.lag(lagTime);
-			paramsTrig = Trig1.ar(HPF.ar(params, 100).abs - tThresh, 0.001) * paramsLag;
+			paramsTrig = Trig1.ar(LeakDC.ar(
+				HPF.ar(params, 100)).abs - tThresh, 0.001) * paramsLag;
 
 			ReplaceOut.ar(bus, params ++ paramsLag ++ paramsTrig);
 
-		}).send(s);
+		}).send(server);
 	}
 	connect {
 		var addr;
@@ -111,18 +113,27 @@ Fielding {
 		}
 	}
 	bootServers {
+		"deprecated, use prepareServers".inform;
+	}
+	prepareServers {
 		this.connect;
-		servers.do{|server|
+		servers.keysValuesDo{|key, server|
+			var serverStyle;
+			(key.asString.first == $b).if({
+				serverStyle = \bela
+			}, {
+				serverStyle = \laptop
+			});
 			server.isLocal.if({
-				server.waitForBoot{
-					this.sendSynths(server)
+				server.doWhenBooted{
+					this.sendSynths(server, serverStyle)
 				};
 			}, {
 				server.startAliveThread(0);
 				server.doWhenBooted({
 					server.notify;
 					server.initTree;
-					this.sendSynths(server);
+					this.sendSynths(server, serverStyle);
 				});
 			})
 			// s.latency = nil;
@@ -193,7 +204,7 @@ Fielding {
 			EZSmoothSlider(
 				statusWindow,
 				elemExt@20,
-				"%_MX".format(c).asSymbol,
+				"%".format(c).asSymbol,
 				[ 0, 1].asSpec,
 				{|me| steno.set(c,      \mix, me.value)},
 				1
@@ -206,7 +217,7 @@ Fielding {
 			EZSmoothSlider(
 				statusWindow,
 				elemExt@20,
-				"%_MF".format(c).asSymbol,
+				"%".format(c).asSymbol,
 				[ -1, 1].asSpec,
 				{|me| steno.set(c, \mix, 1/(me.value.abs+1), \feedback, me.value)},
 				0
@@ -218,7 +229,7 @@ Fielding {
 			EZSmoothSlider(
 				statusWindow,
 				elemExtHalf@20,
-				"%_MX".format(c).asSymbol,
+				"%".format(c).asSymbol,
 				[ 0, 1].asSpec,
 				{|me| steno.set(c, \mix, me.value)},
 				0
@@ -238,7 +249,30 @@ Fielding {
 
 		// server status
 		servers.do{|server|
-			server.makeView(statusWindow)
+			server.makeView(statusWindow);
+			decorator.nextLine;
+
+			EZSmoothSlider(
+				statusWindow,
+				elemExtHalf@20,
+				server.name ++ "_l",
+				[0, 2].asSpec,
+				{|me|
+					server.sendMsg(15, sens2paramSynth.nodeID, \lagTime, me.value)
+				},
+				0
+			);
+			EZSmoothSlider(
+				statusWindow,
+				elemExtHalf@20,
+				server.name ++ "_t",
+				[0, 0.05].asSpec,
+				{|me|
+					server.postln.sendMsg(15, sens2paramSynth.nodeID, \tThresh, me.value)
+				}
+			);
+			decorator.nextLine;
+
 		};
 		statusWindow.front;
 

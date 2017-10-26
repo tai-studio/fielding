@@ -1,42 +1,54 @@
+/*
+Server.killAll
+*/
+
 (
 q = q ? ();
 
-q.f = Fielding((
-	// \b0: NetAddr("192.168.23.10", 57110),
-	// \b1: NetAddr("192.168.23.11", 57110),
-	\i0: NetAddr("localhost"    , 57110),
-));
-q.f.bootServers;
-Server.default = s = q.f.bcServer;
 
-q.f.makeStatusWindow;
+// local server
+a = Server(\i0, NetAddr("localhost", 57110));
+a.options.protocol = \tcp;
+a.options.numAudioBusChannels = 4096;
 
+a.options.maxLogins = 10;
+a.waitForBoot{
+	q.f = Fielding((
+		\i0: a,
+
+		// keys for bela-based servers have to start with $b
+		\b0: NetAddr("192.168.23.10", 57110),
+		\b1: NetAddr("192.168.23.11", 57110),
+
+		// other laptop-based servers
+		// \e0: NetAddr("192.168.23.200", 57110)
+	), 4);
+
+	q.f.prepareServers;
+	q.f.makeSteno;
+	Server.default = s = q.f.bcServer;
+
+	q.f.makeStatusWindow;
+}
 )
 
-q.f.steno.busIndices
-q.f.steno.tailBus
-q.f.queryAllNodes
 
-
-q.f.allParamBus.scope
-
-
-
-
-s.scope
+// OSCFunc.trace(false)
+a.scope(4, rate: \control)
 
 (
 q.f.steno.push;
 q.f.steno.verbosity = 0;
 q.f.steno.setGlobal(\assignment, 2);
-q.f.steno.setGlobal(\fadeTime, 1, \attack, 1);
+q.f.steno.setGlobal(\fadeTime, 0, \attack, 0);
 
 q.f.quelle(\u, {|in, ctl|
-	Trig.ar(q.f.getParam(ctl, 0, \trig).abs.clip(0, 1) - 0.001, 0.00000001)!2;
+	var freq  = q.f.getParam(ctl, [1, 8], \lag).linexp(-1, 1, 500, 1000);
+	LFTri.ar(freq)
 });
 
 q.f.quelle(\e, {|in, ctl|
-	var freq  = q.f.getParam(ctl, 0, \lag).linexp(-1, 1, 100 + (ctl.index * 100), 200 + (ctl.index * 200));
+	var freq  = q.f.getParam(ctl, 0, \lag).linexp(-1, 1, 500 + (ctl.index * 100), 200 + (ctl.index * 200));
 	var phase = q.f.getParam(ctl, 1, \none);
 	var trig  = q.f.getParam(ctl, 2, \trig);
 
@@ -55,10 +67,11 @@ q.f.quelle(\a, {|in, ctl|
 
 
 q.f.quelle(\o, {|in, ctl|
-	var freq  = q.f.getParam(ctl, [0, 1], \lag).linexp(-1, 1, 500, 800);
-	var fb    = q.f.getParam(ctl, 2, \lag).linexp(-1, 1, 0, 0.4);
-	var amp    = q.f.getParam(ctl, [3, 4], \lag).linlin(-1, 1, 0, 0.1);
-	SinOscFB.ar(freq, fb)
+	var freq  = q.f.getParam(ctl, [1, 8], \lag).linexp(-1, 1, 10, 100);
+	var freq2  = q.f.getParam(ctl, 8, \none).linexp(-1, 1, 1000, 100);
+	var fb    = q.f.getParam(ctl, 2, \lag).linexp(-1, 1, 0.2, 1);
+	var amp    = q.f.getParam(ctl, 1, \none).linlin(-1, 1, 0, 1);
+	SinOscFB.ar(SinOsc.ar(freq2).range(1000, freq), fb)
 
 });
 
@@ -68,36 +81,54 @@ q.f.filter(\f, {|in, ctl|
 	var freq  = q.f.getParam(ctl, [0,1], \lag).linexp(-1, 1, 500, 1000);
 	var rq    = q.f.getParam(ctl, 3, \lag).linlin( -1, 1, 0.3, 2);
 
-	RLPF.ar(in.reverse, freq, rq);
+	RHPF.ar(in.reverse, freq, rq);
 });
 
 q.f.filter(\d, {|in, ctl|
-	// var dt = q.f.getParam(ctl, [0, 1], \lag).linlin(-1, 1, 0, 0.1);
-	var dt = \dt.kr(0.1)!2;
-	DelayL.ar(in.reverse, 0.1, dt)
-});
-
-q.f.steno.quelle(\i, {|in, ctl|
-	SoundIn.ar([0, 1])
+	var dt = q.f.getParam(ctl, [0, 1], \lag).linlin(-1, 1, 0, 0.1);
+	// var dt = \dt.kr(0.1)!2;
+	DelayN.ar(in.reverse, 0.1, dt)
 });
 
 q.f.declareVariables([\0, \1, \2, \3])
 )
+
+// send parameter synth
 q.f.sens2paramSynth
+
+
+
+
+q.f.queryAllNodes
+
+
+
+
+////////////////////////////
+
+
+0ud0
+
 
 -- e
 
--- 0eeed0 1afd1 a
+-- 0eed0
 
 
-s.scope
+
+-- 0udaa0 0aaoa
+-- 0udaf0
+
+a.scope
 
 q.f.allParamBus
 
 ///////////
 
-q.f.steno.set(\0, \feedback, -0.0, \mix, 1, \assignment, 1);
-q.f.steno.set(\1, \feedback, -0.0, \mix, 1, \assignment, 1);
+q.f.steno.set(\0, \assignment, 2);
+q.f.steno.set(\1, \assignment, 2);
+q.f.steno.set(\2, \assignment, 2);
+q.f.steno.setGlobal(\assignment, 2);
 
 q.f.steno.set(\0, \feedback, -0.7, \mix, 0.9, \assignment, 1)
 q.f.steno.set(\1, \feedback, -0.2, \mix, 0.7, \assignment, 1)
