@@ -24,11 +24,11 @@
 
 
 require_relative 'lib/trollop'
-require 'Date'
+require 'date'
 require 'socket'
 
 module Fielding
-  myIP = "192.168.23.3";
+  myIP = "192.168.0.2";
   myname = File.basename($0, File.extname($0));
 
   opts = Trollop::options do
@@ -54,7 +54,7 @@ where [options] are:
     opt :halt, "Halt board[s]", :short => 'e'
 
     opt :local, "set IP to USB connection (192.168.7.2)", :short => 'l'
-  	opt :ips, "IP addresses", :long => 'ip', :type => :strings, :default => ["192.168.23.10", "192.168.23.11"]
+  	opt :ips, "IP addresses", :long => 'ip', :type => :strings, :default => ["192.168.0.10", "192.168.0.11", "192.168.0.12"]
     opt :force, "do not test if host is alive", :short => 'f'
   end
 
