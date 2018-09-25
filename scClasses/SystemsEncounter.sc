@@ -1,5 +1,5 @@
 SystemsEncounter : Steno {
-	var <definitions, window;
+	var <definitions, window, <cmdView;
 	var <>numKrs = 8;
 	var <>defaultDefPath;
 	var <>myKeys = "aeioufldngx";
@@ -18,6 +18,12 @@ SystemsEncounter : Steno {
 		super.filter(name, func, multiChannelExpand, update, numChannels)
 	}
 
+	value {|string|
+		cmdView.notNil.if{
+			cmdView.string = string;
+		};
+		super.value(string);
+	}
 	getDef {|name|
 		var type, func, multiChannelExpand, update, numChannels;
 
@@ -46,8 +52,8 @@ SystemsEncounter : Steno {
 		);
 	}
 
-	writeDefs {|path, varName = "t"|
-		var defs, file;
+	writeDefs {|path, varName = "t", comment|
+		var mixs, defs, file;
 
 		path.isNil.if{
 			// write to default location
@@ -55,13 +61,29 @@ SystemsEncounter : Steno {
 		};
 
 
+		// defs.postln;
+		file = File(path,"w");
+		file.write("// %\n//\n".format(comment));
+		file.write("// %\n\n".format(this.rawCmdLine));
+		file.write("%.value(\"%\");\n\n".format(varName, this.rawCmdLine ? ""));
+
+		// get all mix params
+		mixs = myKeys.as(Array).collect(_.asSymbol).collect{|c|
+			var mix = this.settings.synthSettings[c].mix;
+			"%.set(\\mix, %);".format(varName, mix)
+		};
+
+		file.write("\n\n");
+
+		mixs.do{|d|
+			file.write(d);
+			file.write("\n");
+		};
+
 		/// get all definitions
 		defs = myKeys.as(Array).collect{|c|
 			"%%;".format(varName, this.getDef(c.asSymbol).asString)
 		};
-
-		// defs.postln;
-		file = File(path,"w");
 		defs.do{|d|
 			file.write(d);
 			file.write("\n");
@@ -146,8 +168,8 @@ SystemsEncounter : Steno {
 		elemExt     = (width - window.view.decorator.margin.x) - 30;
 		elemExtHalf = (width/2 - window.view.decorator.margin.x - window.view.decorator.gap.x) - 5;
 
-		TextView(window, (width - (2*window.view.decorator.margin.x))@40)
-		.string_(this.cmdLine)
+		cmdView = TextView(window, (width - (2*window.view.decorator.margin.x))@40)
+		.string_(this.rawCmdLine)
 		.keyDownAction_{|me, c ... f|
 			(c == $().if{
 				(me.selectionSize == 0).if({
@@ -182,7 +204,7 @@ SystemsEncounter : Steno {
 		.keyUpAction_{|me, c ... f|
 			// print, backspace or delete
 			(c.isPrint || #[16777219, 16777223].includes(f.last)).if{
-				this.value(me.string.asString);
+				super.value(me.string.asString);
 			};
 			myKeys.includes(c).if{
 				codeView.string_("t%".format(this.getDef(c.asSymbol)))
@@ -201,6 +223,22 @@ SystemsEncounter : Steno {
 			}
 		}
 		.tabWidth_(21);
+		decorator.nextLine;
+
+		// set general amplitude
+		"v".do{|c|
+			var color = Color.red;
+			EZSmoothSlider(
+				window,
+				(width - (2*window.view.decorator.margin.x))@20,
+				// "%".format(c).asSymbol,
+				nil,
+				[ 0, 1].asSpec,
+				{|me| this.monitor.set(\amp, me.value)}
+			)
+			.setColors(hiliteColor: color);
+		};
+		decorator.nextLine;
 		decorator.nextLine;
 
 		myKeys.do{|c|
@@ -248,24 +286,18 @@ SystemsEncounter : Steno {
 			decorator.nextLine;
 		};
 
+		decorator.nextLine;
 		"f".do{|c|
-			var color = Color.red;
+			var color = Color.blue;
 			// write def file
+			// description text
+			var descTextView = TextView(window, elemExt@20);
+
 			SmoothButton(window, 20@20)
 			.states_([[ c.asString ]] )
-			.action_({ this.writeDefs })
+			.action_({ this.writeDefs(comment: descTextView.string) })
 			.background_(color);
 
-			// set general amplitude
-			EZSmoothSlider(
-				window,
-				elemExt@20,
-				// "%".format(c).asSymbol,
-				nil,
-				[ 0, 1].asSpec,
-				{|me| this.monitor.set(\amp, me.value)}
-			)
-			.setColors(hiliteColor: color);
 			decorator.nextLine;
 		};
 
