@@ -1,8 +1,9 @@
 SystemsEncounter : Steno {
-	var <definitions, window, <cmdView;
+	var <definitions, window;
 	var <>numKrs = 8;
 	var <>defaultDefPath;
 	var <>myKeys = "aeioufldngx";
+	var <>myVars = "0123";
 	*new { |numChannels = 2, expand = false, maxBracketDepth = 8, server, defaultDefPath|
 		^super.new(
 			numChannels, expand, maxBracketDepth, server ? Server.default
@@ -19,10 +20,16 @@ SystemsEncounter : Steno {
 	}
 
 	value {|string|
-		cmdView.notNil.if{
-			cmdView.string = string;
+		window.notNil.if {
+			window.cmdView.string = string;
 		};
 		super.value(string);
+	}
+	valueNoUpdate {|string|
+		super.value(string);
+	}
+	setFB {|key, val|
+		this.set(key, \mix, 1/(val.abs+1), \feedback, val)
 	}
 	getDef {|name|
 		var type, func, multiChannelExpand, update, numChannels;
@@ -70,7 +77,7 @@ SystemsEncounter : Steno {
 		// get all mix params
 		mixs = myKeys.as(Array).collect(_.asSymbol).collect{|c|
 			var mix = this.settings.synthSettings[c].mix;
-			"%.set(\\mix, %);".format(varName, mix)
+			"%.set(%, \\mix, %);".format(varName, c.asCompileString, mix)
 		};
 
 		file.write("\n\n");
@@ -151,11 +158,35 @@ SystemsEncounter : Steno {
 	////////////// GUI
 
 	window {
-		var codeView, width = 425, height = 750, elemExt, elemExtHalf, textView, randData, decorator;
+		window.isNil.if({
+			window = SystemsEncounterGUI(this);
+			^window;
+		});
+		window.isClosed.if({
+			window = SystemsEncounterGUI(this);
+			^window;
+		});
 
-		(window.notNil and: {window.isClosed.not}).if{^this};
+		^window;
 
-		// pseudo randomness
+	}
+
+}
+
+SystemsEncounterGUI {
+	var <isClosed, window, model;
+	var codeView, <cmdView, <defSliders, vSlider, width = 425, height = 750, elemExt, elemExtHalf, textView, randData, decorator;
+	var skipJack;
+
+	*new {|model|
+		^super.new.init(model)
+	}
+	init {|argModel|
+
+		isClosed = false;
+		model = argModel;
+
+		// pseudo randomness used for colors
 		randData = thisThread.randData;
 		thisThread.randSeed = 2017;
 
@@ -164,12 +195,14 @@ SystemsEncounter : Steno {
 			Rect(0, 0, width, height),
 			false
 		).decorate;
+		window.onClose({isClosed = true});
+
 		decorator   = window.view.decorator;
 		elemExt     = (width - window.view.decorator.margin.x) - 30;
 		elemExtHalf = (width/2 - window.view.decorator.margin.x - window.view.decorator.gap.x) - 5;
 
 		cmdView = TextView(window, (width - (2*window.view.decorator.margin.x))@40)
-		.string_(this.rawCmdLine)
+		.string_(model.rawCmdLine)
 		.keyDownAction_{|me, c ... f|
 			(c == $().if{
 				(me.selectionSize == 0).if({
@@ -204,10 +237,10 @@ SystemsEncounter : Steno {
 		.keyUpAction_{|me, c ... f|
 			// print, backspace or delete
 			(c.isPrint || #[16777219, 16777223].includes(f.last)).if{
-				super.value(me.string.asString);
+				model.valueNoUpdate(me.string.asString);
 			};
-			myKeys.includes(c).if{
-				codeView.string_("t%".format(this.getDef(c.asSymbol)))
+			model.myKeys.includes(c).if{
+				codeView.string_("t%".format(model.getDef(c.asSymbol)))
 			};
 			me.editable = true;
 		}
@@ -226,26 +259,26 @@ SystemsEncounter : Steno {
 		decorator.nextLine;
 
 		// set general amplitude
-		"v".do{|c|
-			var color = Color.red;
-			EZSmoothSlider(
-				window,
-				(width - (2*window.view.decorator.margin.x))@20,
-				// "%".format(c).asSymbol,
-				nil,
-				[ 0, 1].asSpec,
-				{|me| this.monitor.set(\amp, me.value)}
-			)
-			.setColors(hiliteColor: color);
-		};
+		vSlider = EZSmoothSlider(
+			window,
+			(width - (2*window.view.decorator.margin.x))@20,
+			// "%".format(c).asSymbol,
+			nil,
+			[ 0, 1].asSpec,
+			{|me| model.monitor.set(\amp, me.value)}
+		).setColors(hiliteColor: Color.red);
+
 		decorator.nextLine;
 		decorator.nextLine;
 
-		myKeys.do{|c|
+		defSliders = ();
+
+
+		model.myKeys.do{|c|
 			var color = Color.gray(rrand(0.5, 0.8)).alpha_(0.5);
 			var displayFunc = {
 				codeView
-				.string_("t%".format(this.getDef(c.asSymbol)))
+				.string_("t%".format(model.getDef(c.asSymbol)))
 				// .syntaxColorize;
 				//.stringColor_(color.copy.alpha_(1));
 			};
@@ -259,31 +292,35 @@ SystemsEncounter : Steno {
 				// "".format(c).asString,
 				nil,
 				[ 0, 1].asSpec,
-				{|me| this.set(c.asSymbol,      \mix, me.value)},
-				this.get(c.asSymbol, \mix) ? 0
+				{|me| model.set(c.asSymbol,      \mix, me.value)},
+				model.get(c.asSymbol, \mix) ? 0
 			)
 			.setColors(hiliteColor: color);
 			slider.sliderView.mouseDownAction_(displayFunc);
 			slider.numberView.mouseDownAction_(displayFunc);
 			decorator.nextLine;
+			defSliders[c.asSymbol] = slider;
 		};
-		"0123".do{|c|
+		model.myVars.do{|c|
 			var color = Color.rand.alpha_(0.5);
+			var slider;
 			SmoothButton(window, 20@20)
 			.states_([[ c.asString ]] )
 			// .action_({ this. })
 			.background_(color);
-			EZSmoothSlider(
+			slider = EZSmoothSlider(
 				window,
 				elemExt@20,
 				// "%".format(c).asSymbol,
 				nil,
 				[ -1, 1].asSpec,
-				{|me| this.set(c, \mix, 1/(me.value.abs+1), \feedback, me.value)},
-				this.get(c.asSymbol, \feedback)
+				{|me| model.setFB(c, me.value)},
+				model.get(c.asSymbol, \feedback)
 			)
 			.setColors(hiliteColor: color);
 			decorator.nextLine;
+			defSliders[c.asSymbol] = slider;
+
 		};
 
 		decorator.nextLine;
@@ -295,7 +332,7 @@ SystemsEncounter : Steno {
 
 			SmoothButton(window, 20@20)
 			.states_([[ c.asString ]] )
-			.action_({ this.writeDefs(comment: descTextView.string) })
+			.action_({ model.writeDefs(comment: descTextView.string) })
 			.background_(color);
 
 			decorator.nextLine;
@@ -304,6 +341,78 @@ SystemsEncounter : Steno {
 		thisThread.randData = randData;
 		// window.alwaysOnTop_(true);
 		window.front;
+		this.initSkipjack;
 	}
 
+	initSkipjack {
+		skipJack = SkipJack({
+			defSliders.keysValuesDo{|key, slider|
+				(model.myVars.contains(key.asString).not).if({
+					// non-vars
+					slider.value = model.get(key, \mix);
+				}, {
+					// vars
+					slider.value = model.get(key, \feedback);
+				})
+			};
+			model.monitor.get(\amp, {|v| vSlider.value = v});
+
+		}, 0.1, {this.isClosed})
+	}
+}
+
+SystemsEncounterControl {
+	*launchControl {|model, mktl|
+		var n = mktl;
+		var quellen, filter, vars, main;
+
+		main = mktl.elAt(0, \kn, \sndA, 5);
+		quellen = MKtlElementGroup(\quellen, n, [
+			\a -> mktl.elAt(0, \kn, \sndA, 0),
+			\e -> mktl.elAt(0, \kn, \sndA, 1),
+			\i -> mktl.elAt(0, \kn, \sndA, 2),
+			\o -> mktl.elAt(0, \kn, \sndA, 3),
+			\u -> mktl.elAt(0, \kn, \sndA, 4),
+		]);
+		filter = MKtlElementGroup(\filter, n, [
+			\f -> mktl.elAt(0, \kn, \sndB, 0),
+			\l -> mktl.elAt(0, \kn, \sndB, 1),
+			\d -> mktl.elAt(0, \kn, \sndB, 2),
+			\n -> mktl.elAt(0, \kn, \sndB, 3),
+			\g -> mktl.elAt(0, \kn, \sndB, 4),
+			\x -> mktl.elAt(0, \kn, \sndB, 5),
+		]);
+		vars = MKtlElementGroup(\vars, n, [
+			\0 -> mktl.elAt(0, \kn, \sndA, 6),
+			\1 -> mktl.elAt(0, \kn, \sndA, 7),
+			\2 -> mktl.elAt(0, \kn, \sndB, 6),
+			\3 -> mktl.elAt(0, \kn, \sndB, 7),
+		]);
+
+		mktl.addNamed(\quellen, quellen);
+		mktl.addNamed(\filter, filter);
+		mktl.addNamed(\vars, vars);
+
+
+		main.action = {|el|
+			model.monitor.set(\amp, el.value);
+		};
+
+		"aeiou".collectAs(_.asSymbol, Array).do{|key|
+			mktl.elAt(\quellen, key).action = {|el|
+				model.set(key, \mix, el.value)
+			}
+		};
+		"fldngx".collectAs(_.asSymbol, Array).do{|key|
+			mktl.elAt(\filter, key).action = {|el|
+				model.set(key, \mix, el.value)
+			}
+		};
+		"0123".collectAs(_.asSymbol, Array).do{|key|
+			mktl.elAt(\vars, key).action = {|el|
+				model.setFB(key, el.value.linlin(0, 1, -1, 1))
+			}
+		};
+
+	}
 }
