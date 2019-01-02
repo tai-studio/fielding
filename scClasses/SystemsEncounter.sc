@@ -1,13 +1,18 @@
 SystemsEncounter : Steno {
 	var <definitions, window;
-	var <>numKrs = 8;
 	var <>defaultDefPath;
 	var <>myKeys = "aeioufldngx";
 	var <>myVars = "0123";
-	*new { |numChannels = 2, expand = false, maxBracketDepth = 8, server, defaultDefPath|
+	var <>synthParts;
+	var <>ctlBuses; // buses reserved for external controls (cameras, sensors, manta, microphones...)
+
+	*new { |numChannels = 2, expand = false, maxBracketDepth = 8, server, defaultDefPath, ctlBuses|
 		^super.new(
 			numChannels, expand, maxBracketDepth, server ? Server.default
-		).initDefs(defaultDefPath);
+		)
+		.initBuses(ctlBuses)
+		.initDefs(defaultDefPath)
+		.initSynthparts;
 	}
 
 	quelle { |name, func, multiChannelExpand, update = true, numChannels|
@@ -99,6 +104,9 @@ SystemsEncounter : Steno {
 		"SystemsEncounter: written defs to %".format(path).inform;
 
 	}
+	initBuses {|argCtlBuses|
+		ctlBuses = argCtlBuses;
+	}
 	initDefs {|argDefaultDefPath|
 		definitions = ();
 		defaultDefPath = argDefaultDefPath ?? {"~/Desktop".standardizePath};
@@ -116,6 +124,11 @@ SystemsEncounter : Steno {
 
 	}
 
+	// synth part shortcuts
+
+	initSynthparts {
+		synthParts = SystemsEncounterSynthParts(this);
+	}
 
 	// feedback variables
 
@@ -147,12 +160,6 @@ SystemsEncounter : Steno {
 				"Variable '%' already declared".format(name).warn;
 			}
 		}
-	}
-
-	////////////// kr-Input
-	dynIn {|idx, numChan|
-		var idxs = (idx + Array.iota(numChan))%numKrs;
-		^In.kr(idxs)
 	}
 
 	////////////// GUI
@@ -362,6 +369,8 @@ SystemsEncounterGUI {
 }
 
 SystemsEncounterControl {
+	classvar <>mantaBinary = "/localvol/sound/src/libmanta/MantaOSC/build/MantaOSC 0 31417 57120";
+
 	*launchControl {|model, mktl|
 		var n = mktl;
 		var quellen, filter, vars, main;
@@ -415,4 +424,73 @@ SystemsEncounterControl {
 		};
 
 	}
+
+	*mantaStart {
+		mantaBinary.runInTerminal;
+	}
+	*manta {|model, mktl|
+		var pBus, sBus, cons, sliders;
+		mktl.addNamed(\cons, mktl.elAt(\pad).collect(_[\con]));
+		mktl.addNamed(\sliders, mktl.elAt(\sl).collect(_[\con]));
+
+		cons = mktl.elAt(\cons);
+		sliders = mktl.elAt(\sliders);
+
+		pBus = Bus.control(model.server, cons.deviceValue.size);
+		model.ctlBuses.put(\mtp, pBus);
+
+		cons.action = { |el|
+			var idx = cons.elemIndexOf(el);
+			pBus.setAt(idx, el.value)
+		};
+
+
+		sBus = Bus.control(model.server, sliders.deviceValue.size);
+		model.ctlBuses.put(\mts, sBus);
+
+		sliders.action = { |el|
+			var idx = sliders.elemIndexOf(el);
+			(el.deviceValue < 65535).if{
+				sBus.setAt(idx, el.value)
+			}
+		};
+	}
 }
+
+
+SystemsEncounterSynthParts {
+	var <dict;
+	var model;
+	*new{|model|
+		^super.new.initSystemsEncounterSynthParts(model)
+	}
+	initSystemsEncounterSynthParts {|argModel|
+		model = argModel;
+		dict = ();
+		dict[\kSet] = {|id = 0, num = 1, step = 1, wrap = 16|
+			In.kr(Array.series(num, id, step)%wrap);
+		};
+	}
+	prUnfold {|obj|
+		var wrap, bus, rate, idx;
+
+		bus = model.ctlBuses[obj];
+		wrap = bus.numChannels;
+		idx = bus.index;
+		rate = bus.rate;
+
+		// stupidity
+		rate = (rate == \control).if({\kr}, {\ar});
+		^[wrap, idx, rate]
+	}
+	in {|key, idx = 0, size = 1, step = 1, wrap|
+		var hardWrap, offset, rate, result;
+		#hardWrap, offset, rate = this.prUnfold(key);
+		wrap = wrap ? hardWrap;
+
+		^In.perform(rate, (
+			offset + (((Array.series(size, 0, step) % wrap) + idx) % hardWrap)
+		));
+	}
+}
+
