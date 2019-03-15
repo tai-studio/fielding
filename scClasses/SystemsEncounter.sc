@@ -467,8 +467,18 @@ SystemsEncounterSynthParts {
 	initSystemsEncounterSynthParts {|argModel|
 		model = argModel;
 		dict = ();
-		dict[\kSet] = {|id = 0, num = 1, step = 1, wrap = 16|
-			In.kr(Array.series(num, id, step)%wrap);
+		dict[\l2o] = {|idx = 0, size = 1, step = 1, wrap|
+			this.in(\l2o, idx, size, step, wrap)
+		};
+		dict[\ain] = {|idx = 0, size = 1, step = 1, wrap|
+			this.in(\ain, idx, size, step, wrap)
+		};
+		dict[\manta] = {|key, idx = 0, size = 1, step = 1, wrap|
+			(key == \sl).if({
+				this.in(\mts, idx, size, step, wrap)
+			}, {
+				this.in(\mtp, idx, size, step, wrap)
+			})
 		};
 	}
 	prUnfold {|obj|
@@ -481,6 +491,7 @@ SystemsEncounterSynthParts {
 
 		// stupidity
 		rate = (rate == \control).if({\kr}, {\ar});
+
 		^[wrap, idx, rate]
 	}
 	in {|key, idx = 0, size = 1, step = 1, wrap|
@@ -492,5 +503,15 @@ SystemsEncounterSynthParts {
 			offset + (((Array.series(size, 0, step) % wrap) + idx) % hardWrap)
 		));
 	}
+	doesNotUnderstand {|selector ... args|
+		^dict[selector].value(*args)
+	}
 }
 
+/*
+x.l2o(0, 2)
+x.dict[\l2o] = {|idx = 0, size = 1, step = 1, wrap|
+			x.in(\l2o, idx, size, step, wrap)
+		};
+
+*/
