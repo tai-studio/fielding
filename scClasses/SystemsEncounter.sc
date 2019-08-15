@@ -464,6 +464,93 @@ SystemsEncounterControl {
 			}
 		};
 	}
+
+	*xosc {|model, mktl|
+		var semantics, specs, computeTemperature, computeHumidity;
+		var bus; // where data is written to
+
+		// var elems; // named MKtlElementGroup containing all used values
+
+
+		semantics = (
+			\light1: 12,
+			\light2: 13,
+			\rTemperature: 14,
+			\humidity: 15
+		);
+
+		specs = (
+		// measured
+			\light1: [0.056891709566116, 0.94933462142944].asSpec,
+			\light2: [0.033085092902184, 0.92284214496613].asSpec,
+		// guesstimate
+			\temperature: [0, 35].asSpec,
+			\humidity: [15, 100].asSpec
+		);
+
+		computeTemperature = {|val|
+			var temperature_resistor = 10000; // resistor value
+			var thermistor_nominal = 10000; // resistance at 25 degrees C
+			var temperature_nominal = 25;   // temp. for nominal resistance (almost always 25 C)
+			var beta_coeff = 3950;	        // beta coefficient of thermistor (usually 3000-4000)
+
+			val = ((
+				log(((temperature_resistor / (val.reciprocal  - 1.0))) / thermistor_nominal)/beta_coeff
+			) + (temperature_nominal + 273.15).reciprocal).reciprocal - 273.15;
+
+
+			//// supposedly the same as
+			// val = (1 / val)  - 1.0;
+			// val = temperature_resistor / val;  // 10K / (1023/ADC - 1)
+			//
+			// val = val / thermistor_nominal;     // (R/Ro)
+			// val = log(val);                  // ln(R/Ro)
+			// val = val / beta_coeff;                   // 1/B * ln(R/Ro)
+			// val = val + (1.0 / (temperature_nominal + 273.15)); // + (1/To)
+			// val = 1.0 / val;                 // Invert (reading upside-down)
+			// val = val - 273.15;
+
+			// return
+			val
+		};
+		computeHumidity = {|val, temperature|
+			// input voltage (should be in range 4.5-6V but apparrently also works with 3V)
+			var hih4030_supply = 3;
+
+			// convert to voltage value
+			val = val * hih4030_supply;
+			val = ((val / (0.0062 * hih4030_supply)) - 25.81);
+			val = val / (1.0546 - (0.00216 * temperature));
+			val
+		};
+
+
+		bus = Bus.control(model.server, semantics.size);
+		model.ctlBuses.put(\envir, bus);
+
+		// read values, compute temperature and humidity, set bus
+		mktl.collAt('aIn').groupAction = { |coll|
+			var vals = coll.asArray;
+			var light = [vals[semantics[\light1]].value, vals[semantics[\light2]].value];
+			var temperature = computeTemperature.(vals[semantics[\rTemperature]].value);
+			var humidity = computeHumidity.(vals[semantics[\humidity]].value, temperature);
+
+			bus.setn([
+				specs[\light1].unmap(light[0]),
+				specs[\light2].unmap(light[1]),
+				specs[\temperature].unmap(temperature),
+				specs[\humidity].unmap(humidity)
+			]);
+
+				// bus.setAt(0, specs[\light1].unmap(light[0]);
+				// bus.setAt(1, specs[\light2].unmap(light[1]);
+				// bus.setAt(2, specs[\temperature].unmap(temperature));
+				// bus.setAt(3, specs[\humidity].unmap(humidity));
+			// light.round(0.01).postln;
+
+		};
+
+	}
 }
 
 
@@ -476,12 +563,17 @@ SystemsEncounterSynthParts {
 	initSystemsEncounterSynthParts {|argModel|
 		model = argModel;
 		dict = ();
+
+		// backward compatibility
 		dict[\l2o] = {|idx = 0, size = 1, step = 1, wrap|
-			this.in(\l2o, idx, size, step, wrap)
+			this.in(\lights, idx, size, step, wrap)
 		};
-		dict[\ain] = {|idx = 0, size = 1, step = 1, wrap|
-			this.in(\ain, idx, size, step, wrap)
+		dict[\lights] = {|idx = 0, size = 1, step = 1, wrap|
+			this.in(\lights, idx, size, step, wrap)
 		};
+		// dict[\ain] = {|idx = 0, size = 1, step = 1, wrap|
+		// 	this.in(\ain, idx, size, step, wrap)
+		// };
 		dict[\manta] = {|key, idx = 0, size = 1, step = 1, wrap|
 			(key == \sl).if({
 				this.in(\mts, idx, size, step, wrap)
@@ -489,6 +581,10 @@ SystemsEncounterSynthParts {
 				this.in(\mtp, idx, size, step, wrap)
 			})
 		};
+		dict[\envir] = {|idx = 0, size = 1, step = 1, wrap|
+			this.in(\envir, idx, size, step, wrap)
+		};
+
 	}
 	prUnfold {|obj|
 		var wrap, bus, rate, idx;
@@ -513,14 +609,17 @@ SystemsEncounterSynthParts {
 		));
 	}
 	doesNotUnderstand {|selector ... args|
-		^dict[selector].value(*args)
+		dict[selector].notNil.if{
+			^dict[selector].value(*args)
+		};
+		^this.superPerformList(\doesNotUnderstand, selector, args);
 	}
 }
 
 /*
 x.l2o(0, 2)
-x.dict[\l2o] = {|idx = 0, size = 1, step = 1, wrap|
-			x.in(\l2o, idx, size, step, wrap)
-		};
+x.dict[\lights] = {|idx = 0, size = 1, step = 1, wrap|
+x.in(\lights, idx, size, step, wrap)
+};
 
 */
