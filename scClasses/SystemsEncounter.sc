@@ -1,17 +1,19 @@
 SystemsEncounter : Steno {
 	var <definitions, window;
 	var <>defaultDefPath;
-	var <>myKeys = "aeioufldngx";
+	var <>myQuellen = "aeiou";
+	var <>myFilters = "fldngx";
+	var <myKeys;
 	var <>myVars = "0123";
 	var <>synthParts;
 	var <>ctlBuses; // buses reserved for external controls (cameras, sensors, manta, microphones...)
 
-	*new { |numChannels = 2, expand = false, maxBracketDepth = 8, server, defaultDefPath, ctlBuses|
+	*new { |numChannels = 2, expand = false, maxBracketDepth = 8, server, defaultDefPath, ctlBuses, myQuellen, myFilters|
 		^super.new(
 			numChannels, expand, maxBracketDepth, server ? Server.default
 		)
 		.initBuses(ctlBuses)
-		.initDefs(defaultDefPath)
+		.initDefs(defaultDefPath, myQuellen, myFilters)
 		.initSynthparts;
 	}
 
@@ -42,7 +44,7 @@ SystemsEncounter : Steno {
 		definitions[name].notNil.if({
 			#type, func, multiChannelExpand, update, numChannels = definitions[name];
 		}, {
-			"aeiou".includes(name.asString.first).if({
+			myQuellen.includes(name.asString.first).if({
 				type = \quelle;
 			}, {
 				type = \filter;
@@ -107,7 +109,11 @@ SystemsEncounter : Steno {
 	initBuses {|argCtlBuses|
 		ctlBuses = argCtlBuses;
 	}
-	initDefs {|argDefaultDefPath|
+	initDefs {|argDefaultDefPath, argMyQuellen, argMyFilters|
+		myQuellen = argMyQuellen ? myQuellen;
+		myFilters = argMyFilters ? myFilters;
+		myKeys = myQuellen ++ myFilters;
+
 		definitions = ();
 		defaultDefPath = argDefaultDefPath ?? {"~/Desktop".standardizePath};
 
@@ -148,7 +154,9 @@ SystemsEncounter : Steno {
 						inB: Limiter.ar(InFeedback.ar(bus, numChannels), 8, 0.01),
 						// only do InFeedback for first appearance of variable
 						pan: (controls.feedback.abs * (controls.index < 1) * 2 - 1)
-					) * controls.feedback.sign;
+					)
+					* Select.kr(controls.feedback.abs > 0, [1, controls.feedback.sign]);
+					// * controls.feedback.sign;
 
 					// \assignment can be increased for feeding in more than one signal
 					Out.ar(bus, input * (controls.index < \assignment.kr(1)));
@@ -159,7 +167,8 @@ SystemsEncounter : Steno {
 			} {
 				"Variable '%' already declared".format(name).warn;
 			}
-		}
+		};
+		myVars = names.inject("", {|c, n| c ++ n})
 	}
 
 	////////////// GUI
@@ -182,7 +191,7 @@ SystemsEncounter : Steno {
 
 SystemsEncounterGUI {
 	var <isClosed, window, model;
-	var codeView, <cmdView, <defSliders, vSlider, width = 425, height = 750, elemExt, elemExtHalf, textView, randData, decorator;
+	var codeView, <cmdView, <defSliders, vSlider, width = 425, height = 950, elemExt, elemExtHalf, textView, randData, decorator;
 	var skipJack;
 
 	*new {|model|
@@ -254,7 +263,7 @@ SystemsEncounterGUI {
 		.font_(Font(Font.defaultMonoFace, 18));
 		decorator.nextLine;
 
-		codeView = TextView(window, (width - (2*window.view.decorator.margin.x))@200)
+		codeView = TextView(window, (width - (2*window.view.decorator.margin.x))@150)
 		.enterInterpretsSelection_(false)
 		.font_(Font(Font.defaultMonoFace, 12))
 		.keyDownAction_{|view ... b|
@@ -407,17 +416,17 @@ SystemsEncounterControl {
 			model.monitor.set(\amp, el.value);
 		};
 
-		"aeiou".collectAs(_.asSymbol, Array).do{|key|
+		model.myQuellen.collectAs(_.asSymbol, Array).do{|key|
 			mktl.elAt(\quellen, key).action = {|el|
 				model.set(key, \mix, el.value)
 			}
 		};
-		"fldngx".collectAs(_.asSymbol, Array).do{|key|
+		model.myFilters.collectAs(_.asSymbol, Array).do{|key|
 			mktl.elAt(\filter, key).action = {|el|
 				model.set(key, \mix, el.value)
 			}
 		};
-		"0123".collectAs(_.asSymbol, Array).do{|key|
+		model.myVars.collectAs(_.asSymbol, Array).do{|key|
 			mktl.elAt(\vars, key).action = {|el|
 				model.setFB(key, el.value.linlin(0, 1, -1, 1))
 			}
